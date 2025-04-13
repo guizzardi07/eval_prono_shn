@@ -53,7 +53,7 @@ plt.figure(figsize=(12, 6))
 plt.plot(df_marea['Fecha'], df_marea['Marea'], label='Marea', linestyle='-')
 plt.plot(df_alturas['Fecha'], df_alturas['Altura'], label=f'Alturas SHN - {Estacion_m}', linestyle='--')
 plt.scatter(df_pronos['Fecha'], df_pronos['Altura'], label=f'Correccion - {Lugar}',color='g')
-plt.scatter(df_prono_corr.index, df_prono_corr['Prono'], label=f'Pronóstico - {Lugar}',color='r')
+plt.scatter(df_prono_corr.index, df_prono_corr['Prono'], label=f'Marea + Correccion - {Lugar}',color='r')
 
 
 plt.xlabel('Fecha')

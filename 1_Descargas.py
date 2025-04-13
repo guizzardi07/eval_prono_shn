@@ -1,18 +1,39 @@
-import requests, sqlite3, glob, os
-from bs4 import BeautifulSoup
-import pandas as pd
+import os
+import glob
+import logging
+import sqlite3
 from datetime import datetime
 
-def obtener_html_alturas(url="https://www.hidro.gov.ar/Oceanografia/AlturasHorarias.asp"):
-    """Descarga y parsea la página de alturas horarias."""
-    res = requests.get(url)
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
-    return soup
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup
+
+# Configuración general
+URL_ALTURAS = "https://www.hidro.gov.ar/Oceanografia/AlturasHorarias.asp"
+URL_PRONOSTICO = "https://www.hidro.gov.ar/oceanografia/pronostico.asp"
+CARPETA_DESCARGAS = "descargas"
+DB_NAME = "prono_shn.db"
+ENCODING = "ISO-8859-1"
+
+# Setup de logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+os.makedirs(CARPETA_DESCARGAS, exist_ok=True)
+
+def obtener_html(url):
+    try:
+        res = requests.get(url)
+        res.encoding = "utf-8"
+        return BeautifulSoup(res.text, "html.parser")
+    except Exception as e:
+        logging.error(f"Error obteniendo HTML desde {url}: {e}")
+        return None
 
 def parsear_tabla_alturas(soup):
-    """Parsea la tabla de alturas horarias y devuelve un DataFrame."""
     tabla = soup.find("table", class_="table-striped")
+    if not tabla:
+        raise ValueError("No se encontró la tabla de alturas horarias.")
+
     columnas = tabla.find("thead").find_all("th")[2:]
     fechas_horas = [th.get_text(strip=False).replace("\n", "").replace("\r", "") for th in columnas]
 
@@ -30,25 +51,16 @@ def parsear_tabla_alturas(soup):
 
     df = pd.DataFrame(data, columns=["Mareografo", "Fecha", "Altura"])
     df["Altura"] = pd.to_numeric(df["Altura"], errors="coerce")
-    df["Fecha"] = pd.to_datetime(df['Fecha'], format=" %d/%m/%Y %H:%M")#
+    df["Fecha"] = pd.to_datetime(df['Fecha'], format=" %d/%m/%Y %H:%M", errors="coerce")
     return df
 
-def guardar_csv_t1(df, carpeta_destino="descargas"):
-    """Guarda el DataFrame a un CSV con fecha y hora actual en el nombre."""
-    ahora = datetime.now().strftime("%Y-%m-%d_%H")
-    nombre_archivo = f"{carpeta_destino}/alturas_horarias_{ahora}.csv"
-    df.to_csv(nombre_archivo, index=False, encoding="ISO-8859-1")
-    print(f"CSV guardado: {nombre_archivo}")
-
-def obtener_html_pronostico(url="https://www.hidro.gov.ar/oceanografia/pronostico.asp"):
-    """Descarga y parsea la página de pronóstico de mareas."""
-    res = requests.get(url)
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
-    return soup
+def guardar_csv(df, nombre_base):
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    nombre_archivo = f"{CARPETA_DESCARGAS}/{nombre_base}_{timestamp}.csv"
+    df.to_csv(nombre_archivo, index=False, encoding=ENCODING)
+    logging.info(f"CSV guardado: {nombre_archivo}")
 
 def extraer_tabla(tabla_html):
-    """Procesa una tabla de pronóstico y devuelve una lista de filas."""
     filas = tabla_html.find("tbody").find_all("tr")
     datos = []
     lugar_actual = ""
@@ -70,113 +82,118 @@ def extraer_tabla(tabla_html):
         datos.append([lugar_actual, estado, hora, altura_float, fecha])
     return datos
 
-def procesar_tablas(soup):
-    """Extrae las dos tablas (INTERIOR y EXTERIOR) y devuelve un DataFrame combinado."""
+def procesar_tablas_pronostico(soup):
     tablas = soup.find_all("table", class_="table-striped")
+    if len(tablas) < 2:
+        raise ValueError("No se encontraron ambas tablas de pronóstico.")
+
     datos_interior = extraer_tabla(tablas[0])
     datos_exterior = extraer_tabla(tablas[1])
 
-    nom_Col = ["Lugar", "Estado", "Hora", "Altura", "Dia"]
-    df_interior = pd.DataFrame(datos_interior, columns=nom_Col)
-    df_exterior = pd.DataFrame(datos_exterior, columns=nom_Col)
+    columnas = ["Lugar", "Estado", "Hora", "Altura", "Dia"]
+    df = pd.concat([
+        pd.DataFrame(datos_interior, columns=columnas),
+        pd.DataFrame(datos_exterior, columns=columnas)
+    ], ignore_index=True)
 
-    df_unido = pd.concat([df_interior, df_exterior], ignore_index=True)
-    df_unido['Fecha'] = pd.to_datetime(df_unido['Dia']+' '+df_unido['Hora'],format="%d/%m/%Y %H:%M",errors='coerce')
-    df_unido = df_unido.drop(columns=["Dia", "Hora"])
-    return df_unido
+    df['Fecha'] = pd.to_datetime(df['Dia'] + ' ' + df['Hora'], format="%d/%m/%Y %H:%M", errors='coerce')
+    df.drop(columns=["Dia", "Hora"], inplace=True)
+    df["Fecha_Prono"] = datetime.now().strftime("%Y-%m-%d %H")
+    return df
 
-def guardar_csv_t2(df, carpeta_destino="descargas"):
-    """Guarda el DataFrame como CSV con la hora actual en el nombre."""
-    ahora = datetime.now().strftime("%Y-%m-%d_%H")
-    nombre_archivo = f"{carpeta_destino}/pronostico_mareas_{ahora}.csv"
-    ahora = datetime.now().strftime("%Y-%m-%d %H")
-    df["Fecha_Prono"] = ahora
-    df.to_csv(nombre_archivo, index=False, encoding="ISO-8859-1")
-    print(f"CSV guardado: {nombre_archivo}")
-
-def actualizar_base_mareas(carpeta_csvs="descargas", db_name="prono_shn.db"):
-    # Buscar CSVs de alturas horarias
-    archivos = glob.glob(os.path.join(carpeta_csvs, "alturas_horarias_*.csv"))
-    # Leer y concatenar
-    dfs = [pd.read_csv(archivo,encoding="ISO-8859-1") for archivo in archivos]
-    df_total = pd.concat(dfs, ignore_index=True)
-
-    # Eliminar duplicados por mareógrafo + fecha-hora
+def actualizar_base_alturas():
+    archivos = glob.glob(os.path.join(CARPETA_DESCARGAS, "alturas_horarias_*.csv"))
+    df_total = pd.concat([pd.read_csv(f, encoding=ENCODING) for f in archivos], ignore_index=True)
     df_total.drop_duplicates(subset=["Mareografo", "Fecha"], inplace=True)
 
-    # Conectar a SQLite
-    conn = sqlite3.connect(db_name)
-    df_total.to_sql("alturas_horarias", conn, if_exists="append", index=False)
-
-    # Opcional: eliminar duplicados a nivel SQL también (solo si se repiten por error)
+    conn = sqlite3.connect(DB_NAME)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS alturas_horarias_unica AS
-        SELECT DISTINCT * FROM alturas_horarias
-    """)
-    conn.execute("DROP TABLE alturas_horarias")
-    conn.execute("ALTER TABLE alturas_horarias_unica RENAME TO alturas_horarias")
-    conn.commit()
-    conn.close()
+        CREATE TABLE IF NOT EXISTS alturas_horarias (
+            Mareografo TEXT,
+            Fecha TEXT,
+            Altura REAL,
+            PRIMARY KEY (Mareografo, Fecha))""")
 
-    print(f"Base SQLite '{db_name}' actualizada con {len(df_total)} registros únicos.")
-
-def actualizar_base_pronosticos(carpeta_csv="descargas", db_path="prono_shn.db"):
-    archivos_csv = glob.glob(os.path.join(carpeta_csv, "pronostico_mareas_*.csv"))
-
-    dfs = [pd.read_csv(archivo,encoding="ISO-8859-1") for archivo in archivos_csv]
-    df_total = pd.concat(dfs, ignore_index=True)
-
-    df_total = df_total.drop_duplicates(subset=["Lugar", "Fecha","Fecha_Prono"])
-
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS pronosticos_mareas (
-        Lugar TEXT,
-        Estado TEXT,
-        Altura REAL,
-        Fecha TEXT,
-        Fecha_Prono TEXT,
-        PRIMARY KEY (Lugar, Fecha, Fecha_Prono)
-    )
-    """)
-    # Leer claves existentes en la base
     claves_existentes = pd.read_sql_query(
-        "SELECT Lugar, Fecha, Fecha_Prono FROM pronosticos_mareas", conn
+        "SELECT Mareografo, Fecha FROM alturas_horarias", conn
     )
 
-    # Unir con el DataFrame a insertar para filtrar duplicados
-    df_merge = df_total.merge(claves_existentes, on=["Lugar", "Fecha", "Fecha_Prono"], how="left", indicator=True)
-    df_filtrado = df_merge[df_merge["_merge"] == "left_only"].drop(columns=["_merge"])
+    # Filtrar registros nuevos
+    df_nuevos = df_total.merge(
+        claves_existentes, on=["Mareografo", "Fecha"], how="left", indicator=True)
+    df_nuevos = df_nuevos[df_nuevos["_merge"] == "left_only"].drop(columns=["_merge"])
 
-    if not df_filtrado.empty:
+    if not df_nuevos.empty:
         try:
-            df_filtrado.to_sql("pronosticos_mareas", conn, if_exists="append", index=False)
-            print("Base de datos actualizada correctamente.")
+            df_nuevos.to_sql("alturas_horarias", conn, if_exists="append", index=False)
+            print(f"Se insertaron {len(df_nuevos)} registros nuevos en la base '{DB_NAME}'.")
         except Exception as e:
-            print(f"Error al insertar en la base de datos: {e}")
+            print(f"Error al insertar registros nuevos: {e}")
     else:
-        print("No hay nuevos registros para insertar.")
+        print("No hay registros nuevos para insertar.")
 
     conn.commit()
     conn.close()
 
+def actualizar_base_pronosticos():
+    archivos = glob.glob(os.path.join(CARPETA_DESCARGAS, "pronostico_mareas_*.csv"))
+    if not archivos:
+        logging.info("No se encontraron archivos CSV de pronóstico para procesar.")
+        return
+    
+    df_total = pd.concat([pd.read_csv(f, encoding=ENCODING) for f in archivos], ignore_index=True)
+    df_total.drop_duplicates(subset=["Lugar", "Fecha", "Fecha_Prono"], inplace=True)
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pronosticos_mareas (
+            Lugar TEXT,
+            Estado TEXT,
+            Altura REAL,
+            Fecha TEXT,
+            Fecha_Prono TEXT,
+            PRIMARY KEY (Lugar, Fecha, Fecha_Prono))""")
+    
+    claves_existentes = pd.read_sql_query(
+        "SELECT Lugar, Fecha, Fecha_Prono FROM pronosticos_mareas",conn)
+    
+    df_nuevos = df_total.merge(
+        claves_existentes,
+        on=["Lugar", "Fecha", "Fecha_Prono"],
+        how="left",indicator=True)
+    
+    df_nuevos = df_nuevos[df_nuevos["_merge"] == "left_only"].drop(columns=["_merge"])
+
+    if not df_nuevos.empty:
+        try:
+            df_nuevos.to_sql("pronosticos_mareas", conn, if_exists="append", index=False)
+            logging.info(f"Se insertaron {len(df_nuevos)} nuevos registros en la tabla de pronósticos.")
+        except Exception as e:
+            logging.error(f"Error insertando nuevos registros: {e}")
+    else:
+        logging.info("No hay registros nuevos para insertar en la tabla de pronósticos.")
+
+    conn.commit()
+    conn.close()
+    
 def main():
-    soup1 = obtener_html_alturas()
-    df1 = parsear_tabla_alturas(soup1)
-    guardar_csv_t1(df1)
+    logging.info("Descargando y procesando alturas horarias...")
+    soup_alturas = obtener_html(URL_ALTURAS)
+    if soup_alturas:
+        df_alturas = parsear_tabla_alturas(soup_alturas)
+        guardar_csv(df_alturas, "alturas_horarias")
+        actualizar_base_alturas()
 
-    soup2 = obtener_html_pronostico()
-    df_2 = procesar_tablas(soup2)
-    guardar_csv_t2(df_2)
-
-    actualizar_base_mareas()
-    actualizar_base_pronosticos()
+    logging.info("Descargando y procesando pronóstico de mareas...")
+    soup_pronostico = obtener_html(URL_PRONOSTICO)
+    if soup_pronostico:
+        df_prono = procesar_tablas_pronostico(soup_pronostico)
+        guardar_csv(df_prono, "pronostico_mareas")
+        actualizar_base_pronosticos()
 
 # if __name__ == "__main__":
 #     main()
-
 
 import schedule
 import time
