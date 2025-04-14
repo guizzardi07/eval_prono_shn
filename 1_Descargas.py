@@ -55,7 +55,7 @@ def parsear_tabla_alturas(soup):
     return df
 
 def guardar_csv(df, nombre_base):
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H")
     nombre_archivo = f"{CARPETA_DESCARGAS}/{nombre_base}_{timestamp}.csv"
     df.to_csv(nombre_archivo, index=False, encoding=ENCODING)
     logging.info(f"CSV guardado: {nombre_archivo}")
@@ -193,13 +193,13 @@ def main():
         actualizar_base_pronosticos()
 
 # if __name__ == "__main__":
-#     main()
+# main()
 
 import schedule
 import time
 
-for hora in [1,7,13,19]:
-    hora_formateada = f"{hora:02d}:15"
+for hora in [0,6,12,18]:
+    hora_formateada = f"{hora:02d}:30"
     print(hora_formateada)
     schedule.every().day.at(hora_formateada).do(main)
 
