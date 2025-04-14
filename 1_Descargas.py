@@ -193,7 +193,7 @@ def main():
         actualizar_base_pronosticos()
 
 # if __name__ == "__main__":
-# main()
+main()
 
 import schedule
 import time
