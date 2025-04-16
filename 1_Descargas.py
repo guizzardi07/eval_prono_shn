@@ -193,13 +193,13 @@ def main():
         actualizar_base_pronosticos()
 
 # if __name__ == "__main__":
-main()
+#      main()
 
 import schedule
 import time
 
 for hora in [0,6,12,18]:
-    hora_formateada = f"{hora:02d}:30"
+    hora_formateada = f"{hora:02d}:50"
     print(hora_formateada)
     schedule.every().day.at(hora_formateada).do(main)
 
