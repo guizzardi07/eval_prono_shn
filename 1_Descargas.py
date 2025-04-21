@@ -194,13 +194,13 @@ def main():
 
 # if __name__ == "__main__":
 #      
-main()
+
 
 import schedule
 import time
 
-for hora in [0,6,12,18]:
-    hora_formateada = f"{hora:02d}:50"
+for hora in [2,8,14,20]:
+    hora_formateada = f"{hora:02d}:05"
     print(hora_formateada)
     schedule.every().day.at(hora_formateada).do(main)
 
