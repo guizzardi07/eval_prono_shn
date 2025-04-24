@@ -5,7 +5,7 @@ from datetime import timedelta
 import numpy as np
 
 
-guarda_csv = False
+guarda_csv = True
 figura = False
 
 
@@ -36,7 +36,7 @@ for est_met in Dic_Estaciones.keys():
 
     pronosticos_completo = pronosticos_completo.sort_values(by='Fecha')
     pronosticos = pronosticos_completo[pronosticos_completo['Lugar'] == est_prono]
-    pronosticos = pronosticos.drop_duplicates(subset=['Altura', 'Fecha']).dropna(subset=['Altura', 'Fecha'])
+    #pronosticos = pronosticos.drop_duplicates(subset=['Altura', 'Fecha']).dropna(subset=['Altura', 'Fecha'])
     pronosticos = pronosticos[['Fecha','Altura','Fecha_Prono']]
     pronosticos = pronosticos.rename(columns={"Altura": "Altura_pronosticada"})
     pronosticos["Fecha"] = pd.to_datetime(pronosticos["Fecha"])
@@ -60,7 +60,7 @@ for est_met in Dic_Estaciones.keys():
     df_total = df_total.dropna(subset=["Altura_observada"])
 
     df_total = df_total[df_total["Anticipacion_hs"] >= 0].copy()
-    df_total = df_total.sort_values("Fecha_Prono").drop_duplicates(subset="Fecha", keep="first")
+    df_total = df_total.sort_values("Fecha_Prono").drop_duplicates(subset=['Altura_pronosticada', 'Fecha'], keep="first")
     df_total = df_total.sort_values("Fecha")
 
     # print(df_total)
