@@ -192,19 +192,18 @@ def main():
         guardar_csv(df_prono, "pronostico_mareas")
         actualizar_base_pronosticos()
 
-# if __name__ == "__main__":
-#
-main()    
+if __name__ == "__main__":
+    main()    
 
 
-import schedule
-import time
+# import schedule
+# import time
 
-for hora in [2,8,14,20]:
-    hora_formateada = f"{hora:02d}:05"
-    print(hora_formateada)
-    schedule.every().day.at(hora_formateada).do(main)
+# for hora in [2,8,14,20]:
+#     hora_formateada = f"{hora:02d}:05"
+#     print(hora_formateada)
+#     schedule.every().day.at(hora_formateada).do(main)
 
-while True:
-    schedule.run_pending()
-    time.sleep(60)  # Revisar cada minuto
+# while True:
+#     schedule.run_pending()
+#     time.sleep(60)
